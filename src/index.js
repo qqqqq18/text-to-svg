@@ -31,6 +31,10 @@ export default class TextToSVG {
     return opentype.load(url).then(font => new TextToSVG(font))
   }
 
+  static parse(buffer) {
+    return new TextToSVG(opentype.parse(buffer))
+
+  }
   getWidth(text, options) {
     const fontSize = options.fontSize || 72;
     const kerning = 'kerning' in options ? options.kerning : true;
