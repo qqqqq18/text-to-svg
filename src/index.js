@@ -27,14 +27,8 @@ export default class TextToSVG {
     return new TextToSVG(opentype.loadSync(file));
   }
 
-  static load(url, cb) {
-    opentype.load(url, (err, font) => {
-      if (err !== null) {
-        return cb(err, null);
-      }
-
-      return cb(null, new TextToSVG(font));
-    });
+  static load(url) {
+    return opentype.load(url).then(font => new TextToSVG(font))
   }
 
   getWidth(text, options) {
