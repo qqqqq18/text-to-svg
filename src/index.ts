@@ -40,6 +40,9 @@ export default class TextToSVG {
         if (err) {
           return reject(err)
         }
+        if (!font) {
+          return reject("Font not found")
+        }
         return resolve(new TextToSVG(font))
       })
     })
