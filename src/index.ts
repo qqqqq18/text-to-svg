@@ -35,12 +35,12 @@ export default class TextToSVG {
   }
 
   static load(url: string) {
-    return new Promise<opentype.Font>((resolve, reject) => {
+    return new Promise<TextToSVG>((resolve, reject) => {
       opentype.load(url, (err, font) => {
         if (err) {
           return reject(err)
         }
-        return resolve(font)
+        return resolve(new TextToSVG(font))
       })
     })
   }
