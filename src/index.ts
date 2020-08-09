@@ -51,6 +51,10 @@ export default class TextToSVG {
   static parse(buffer: Buffer) {
     return new TextToSVG(opentype.parse(buffer))
   }
+
+  getFont() {
+    return this.font
+  }
   getWidth(text: string, options: TextToSVGOptions) {
     const fontSize = options.fontSize || 72
     const kerning = 'kerning' in options ? options.kerning : true
