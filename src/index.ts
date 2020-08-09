@@ -153,10 +153,8 @@ export default class TextToSVG {
       metrics.x,
       metrics.baseline,
       fontSize,
-      //@ts-ignore
       { kerning, letterSpacing, tracking }
     )
-    //@ts-ignore
     return path.toPathData()
   }
 
