@@ -48,8 +48,8 @@ export default class TextToSVG {
     })
   }
 
-  static parse(buffer: Buffer) {
-    return new TextToSVG(opentype.parse(buffer))
+  static parse(arrayBuffer: ArrayBuffer) {
+    return new TextToSVG(opentype.parse(arrayBuffer))
   }
 
   getFont() {
