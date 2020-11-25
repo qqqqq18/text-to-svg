@@ -5,6 +5,7 @@
  */
 
 const package = require('../package');
+const path = require('path');
 
 const program = require('commander')
   .version(package.version)
@@ -12,6 +13,8 @@ const program = require('commander')
   .option('-x, --x <n>', 'horizontal offset', parseFloat)
   .option('-y, --y <n>', 'vertical offset', parseFloat)
   .option('-s, --font-size <n>', 'font size', parseFloat)
+  .option('-f, --font [value]', 'font')
+  .option('-c, --color [value]', 'color')
   .option('-k, --kerning', 'kerning')
   .option('-a, --anchor [value]', 'anchor point')
   .option('-d, --debug', 'debug')
@@ -23,18 +26,33 @@ if(program.args.length < 1) {
 }
 
 const text = program.args[0];
+let attributes = {};
+if (program.color) {
+  attributes = {
+    fill: program.color
+  }
+}
 const options = {
   x: program.x || 0,
   y: program.y || 0,
   fontSize: program.fontSize || 72,
   kerning: program.kerning,
-  anchor: program.anchor || ''
+  anchor: program.anchor || '',
+  attributes: attributes
 };
 
-const TextToSVG = require('../build/src');
-const textToSVG = TextToSVG.loadSync();
+const fontsPath = path.join(__dirname, '..', 'fonts');
+let font;
+if (!program.font) {
+  font = path.join(fontsPath, 'SourceHanSerifJP-Light.otf')
+} else {
+  font = path.join(fontsPath, program.font)
+}
 
-var svg;
+const TextToSVG = require('../build');
+const textToSVG = TextToSVG.default.loadSync(font);
+
+let svg;
 if (!program.debug) {
   svg = textToSVG.getSVG(text, options);
 } else {

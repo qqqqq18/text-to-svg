@@ -177,8 +177,25 @@ export default class TextToSVG {
   }
 
   getSVG(text: string, options: TextToSVGOptions = {}) {
+    options = JSON.parse(JSON.stringify(options))
+
+    options.x = options.x || 0
+    options.y = options.y || 0
     const metrics = this.getMetrics(text, options)
-    let svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${metrics.width}" height="${metrics.height}">`
+    const box = {
+      width: Math.max(metrics.x + metrics.width, 0) - Math.min(metrics.x, 0),
+      height: Math.max(metrics.y + metrics.height, 0) - Math.min(metrics.y, 0),
+    }
+    const origin = {
+      x: box.width - Math.max(metrics.x + metrics.width, 0),
+      y: box.height - Math.max(metrics.y + metrics.height, 0),
+    }
+
+    // Shift text based on origin
+    options.x += origin.x
+    options.y += origin.y
+
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box.width} ${box.height}">`
     svg += this.getPath(text, options)
     svg += '</svg>'
 
