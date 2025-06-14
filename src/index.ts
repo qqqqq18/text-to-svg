@@ -3,6 +3,8 @@
  */
 
 const opentype = require('opentype.js')
+const svgpath = require('svgpath')
+import { EnvelopeTransform, EnvelopeTransformOptions, BoundingBox } from './envelope-transform'
 
 export interface TextToSVGOptions {
   fontSize?: number
@@ -13,6 +15,7 @@ export interface TextToSVGOptions {
   x?: number
   y?: number
   attributes?: {[x: string]: any}
+  envelope?: EnvelopeTransformOptions
 }
 
 // Private method
@@ -161,7 +164,24 @@ export default class TextToSVG {
       fontSize,
       { kerning, letterSpacing, tracking }
     )
-    return path.toPathData()
+    let pathData = path.toPathData()
+    
+    // Apply envelope transformation if specified
+    if (options.envelope) {
+      // Set text width for arc transformation
+      if (options.envelope.arc) {
+        options.envelope.arc.textWidth = metrics.width
+        if (!options.envelope.arc.centerX) {
+          options.envelope.arc.centerX = metrics.x + metrics.width / 2
+        }
+        if (!options.envelope.arc.centerY) {
+          options.envelope.arc.centerY = metrics.baseline
+        }
+      }
+      pathData = EnvelopeTransform.transform(pathData, options.envelope)
+    }
+    
+    return pathData
   }
 
   getPath(text: string, options: TextToSVGOptions = {}) {
@@ -183,22 +203,65 @@ export default class TextToSVG {
 
     options.x = options.x || 0
     options.y = options.y || 0
-    const metrics = this.getMetrics(text, options)
-    const box = {
-      width: Math.max(metrics.x + metrics.width, 0) - Math.min(metrics.x, 0),
-      height: Math.max(metrics.y + metrics.height, 0) - Math.min(metrics.y, 0),
-    }
-    const origin = {
-      x: box.width - Math.max(metrics.x + metrics.width, 0),
-      y: box.height - Math.max(metrics.y + metrics.height, 0),
+    
+    // Get the path data first to calculate accurate bounding box
+    const pathData = this.getD(text, options)
+    
+    let box: { width: number; height: number }
+    let finalPathData: string
+    
+    if (options.envelope) {
+      // For transformed paths, calculate bounding box from actual path data
+      const boundingBox = EnvelopeTransform.calculateBoundingBox(pathData)
+      
+      // Add some padding for better visual appearance
+      const padding = 10
+      box = {
+        width: boundingBox.width + padding * 2,
+        height: boundingBox.height + padding * 2
+      }
+      
+      // Calculate the translation needed to center the content in the viewBox
+      const translateX = (box.width - boundingBox.width) / 2 - boundingBox.x
+      const translateY = (box.height - boundingBox.height) / 2 - boundingBox.y
+      
+      // Apply translation directly to path data using svgpath library
+      finalPathData = svgpath(pathData)
+        .translate(translateX, translateY)
+        .toString()
+    } else {
+      // For non-transformed paths, use original metrics-based calculation
+      const metrics = this.getMetrics(text, options)
+      box = {
+        width: Math.max(metrics.x + metrics.width, 0) - Math.min(metrics.x, 0),
+        height: Math.max(metrics.y + metrics.height, 0) - Math.min(metrics.y, 0),
+      }
+      const origin = {
+        x: box.width - Math.max(metrics.x + metrics.width, 0),
+        y: box.height - Math.max(metrics.y + metrics.height, 0),
+      }
+
+      // Shift text based on origin for non-envelope case
+      options.x += origin.x
+      options.y += origin.y
+      
+      // Use the standard path generation
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box.width} ${box.height}">${this.getPath(text, options)}</svg>`
     }
 
-    // Shift text based on origin
-    options.x += origin.x
-    options.y += origin.y
-
+    // Build SVG with transformed path data
     let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box.width} ${box.height}">`
-    svg += this.getPath(text, options)
+    
+    // Add attributes to the path if specified
+    if (options.attributes) {
+      const attributesStr = Object.keys(options.attributes)
+        .map((key) => `${key}="${options.attributes![key]}"`)
+        .join(' ')
+      svg += `<path ${attributesStr} d="${finalPathData}"/>`
+    } else {
+      svg += `<path d="${finalPathData}"/>`
+    }
+    
     svg += '</svg>'
 
     return svg
