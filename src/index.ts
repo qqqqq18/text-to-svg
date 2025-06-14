@@ -2,7 +2,7 @@
  * Copyright (c) 2016 Hideki Shiro
  */
 
-import opentype from 'opentype.js'
+const opentype = require('opentype.js')
 
 export interface TextToSVGOptions {
   fontSize?: number
@@ -28,15 +28,17 @@ function parseAnchorOption(anchor: string) {
 }
 
 export default class TextToSVG {
-  constructor(private font: opentype.Font) {}
+  constructor(private font: any) {}
 
-  static loadSync(file: string) {
-    return new TextToSVG(opentype.loadSync(file))
+  static loadSync(file?: string) {
+    const path = require('path')
+    const defaultFont = file || path.join(__dirname, '..', 'fonts', 'SourceHanSerifJP-Light.otf')
+    return new TextToSVG(opentype.loadSync(defaultFont))
   }
 
   static load(url: string) {
     return new Promise<TextToSVG>((resolve, reject) => {
-      opentype.load(url, (err, font) => {
+      opentype.load(url, (err: any, font: any) => {
         if (err) {
           return reject(err)
         }
