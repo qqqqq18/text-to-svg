@@ -27,6 +27,15 @@ The primary class handles font loading and text-to-SVG conversion with these key
 - `getSVG(text, options)` - Returns complete SVG markup
 - `getMetrics(text, options)` - Returns text dimensions and positioning
 
+**Options support**: All methods accept comprehensive options including `fontSize`, `anchor`, `x/y` positioning, `kerning`, `letterSpacing`, `tracking`, `attributes`, `envelope` transforms, `lineHeight`, and `textAlign` for multiline text.
+
+### Envelope Transform (src/envelope-transform.ts)
+New feature for advanced text transformations:
+- **Arc transformations**: Bend text along circular arcs with configurable angle and radius
+- **Perspective transformations**: Apply 3D perspective effects to text
+- **Trapezoid transformations**: Create trapezoidal text effects for depth illusion
+- Integration with main TextToSVG class via `envelope` option parameter
+
 ### Font Handling
 - Default font: SourceHanSerifJP-Light.otf (Japanese serif font)
 - Font files stored in `/fonts` directory
@@ -43,15 +52,18 @@ Command-line interface supporting options for position (-x, -y), font size (-s),
 ## Testing
 
 Uses Vitest with:
-- Test files: `test/*.test.ts`
+- Test files: `test/*.test.ts` (main: `index.test.ts`, envelope: `envelope-transform.test.ts`, multiline: `multiline.test.ts`)
 - Test environment: Node.js
 - Browser testing: `test/browser.html` for manual browser validation
 - Font creation utilities: `test/create-test-font.js`
+- Single test: `npm test -- <test-file-pattern>` (e.g., `npm test -- envelope`)
 
 ## Key Dependencies
 
 - **opentype.js**: Core font parsing and glyph extraction
+- **svg-pathdata**: SVG path manipulation for envelope transforms
+- **svgpath**: Additional SVG path utilities
 - **commander**: CLI argument parsing
 - **typescript**: Type checking and compilation
-- **vite**: Build system and bundling
+- **vite**: Build system and bundling (replaced Gulp/Babel)
 - **vitest**: Testing framework

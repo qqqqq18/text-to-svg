@@ -21,6 +21,8 @@ program
   .option('-k, --kerning', 'kerning')
   .option('-a, --anchor [value]', 'anchor point')
   .option('-d, --debug', 'debug')
+  .option('--line-height <n>', 'line height multiplier for multiline text', parseFloat)
+  .option('--text-align [value]', 'text alignment for multiline text (left, center, right)')
   .option('--arc-angle <n>', 'arc transformation angle in degrees (positive for upward, negative for downward)', parseFloat)
   .option('--arc-center-x <n>', 'arc center X coordinate', parseFloat)
   .option('--arc-center-y <n>', 'arc center Y coordinate', parseFloat)
@@ -32,7 +34,8 @@ if(program.args.length < 1) {
 }
 
 const opts = program.opts();
-const text = program.args[0];
+// Process escape sequences in text (e.g., \n to actual newlines)
+const text = program.args[0].replace(/\\n/g, '\n').replace(/\\t/g, '\t').replace(/\\\\/g, '\\');
 let attributes = {};
 if (opts.color) {
   attributes = {
@@ -42,11 +45,19 @@ if (opts.color) {
 const options = {
   x: opts.x || 0,
   y: opts.y || 0,
-  fontSize: opts.fontsize || 72,
+  fontSize: opts.fontSize || 72,
   kerning: opts.kerning,
   anchor: opts.anchor || '',
   attributes: attributes
 };
+
+// Add multiline options if provided
+if (opts.lineHeight !== undefined) {
+  options.lineHeight = opts.lineHeight;
+}
+if (opts.textAlign !== undefined) {
+  options.textAlign = opts.textAlign;
+}
 
 // Add envelope transformation if arc options are provided
 if (opts.arcAngle !== undefined) {

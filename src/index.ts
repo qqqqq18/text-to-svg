@@ -16,6 +16,43 @@ export interface TextToSVGOptions {
   y?: number
   attributes?: {[x: string]: any}
   envelope?: EnvelopeTransformOptions
+  lineHeight?: number
+  textAlign?: 'left' | 'center' | 'right'
+}
+
+interface LineMetrics {
+  text: string
+  x: number
+  y: number
+  baseline: number
+  width: number
+  height: number
+  ascender: number
+  descender: number
+}
+
+interface MultilineMetrics {
+  lines: LineMetrics[]
+  totalWidth: number
+  totalHeight: number
+  x: number
+  y: number
+  lineHeight: number
+  baseline: number
+}
+
+interface SingleLineMetrics {
+  x: number
+  y: number
+  baseline: number
+  width: number
+  height: number
+  ascender: number
+  descender: number
+}
+
+interface TextMetrics extends SingleLineMetrics {
+  lines?: LineMetrics[]
 }
 
 // Private method
@@ -93,7 +130,121 @@ export default class TextToSVG {
     return (this.font.ascender - this.font.descender) * fontScale
   }
 
-  getMetrics(text: string, options: TextToSVGOptions = {}) {
+  private getMultilineMetrics(text: string, options: TextToSVGOptions = {}): MultilineMetrics {
+    const lines = text.split('\n')
+    const fontSize = options.fontSize || 72
+    const lineHeight = (options.lineHeight || 1.2) * fontSize
+    const textAlign = options.textAlign || 'left'
+    const anchor = parseAnchorOption(options.anchor || '')
+
+    // Calculate metrics for each line
+    const lineMetrics: SingleLineMetrics[] = lines.map((line: string) => {
+      const singleLineOptions = { ...options }
+      delete singleLineOptions.lineHeight
+      delete singleLineOptions.textAlign
+      return this.getMetrics(line, singleLineOptions) as SingleLineMetrics
+    })
+
+    // Calculate overall dimensions
+    const totalWidth: number = Math.max(...lineMetrics.map((m: SingleLineMetrics) => m.width))
+    const totalHeight: number = (lines.length - 1) * lineHeight + lineMetrics[0].height
+
+    // Calculate positioning
+    let x = options.x || 0
+    let y = options.y || 0
+
+    // Apply horizontal anchor to overall text block
+    switch (anchor.horizontal) {
+      case 'left':
+        x -= 0
+        break
+      case 'center':
+        x -= totalWidth / 2
+        break
+      case 'right':
+        x -= totalWidth
+        break
+      default:
+        throw new Error(`Unknown anchor option: ${anchor.horizontal}`)
+    }
+
+    // Apply vertical anchor to overall text block
+    switch (anchor.vertical) {
+      case 'baseline':
+        y -= lineMetrics[0].ascender
+        break
+      case 'top':
+        y -= 0
+        break
+      case 'middle':
+        y -= totalHeight / 2
+        break
+      case 'bottom':
+        y -= totalHeight
+        break
+      default:
+        throw new Error(`Unknown anchor option: ${anchor.vertical}`)
+    }
+
+    // Calculate position for each line
+    const linesWithPositions: LineMetrics[] = lines.map((line: string, index: number): LineMetrics => {
+      const lineMetric: SingleLineMetrics = lineMetrics[index]
+      let lineX = x
+
+      // Apply text alignment to each line
+      switch (textAlign) {
+        case 'left':
+          lineX += 0
+          break
+        case 'center':
+          lineX += (totalWidth - lineMetric.width) / 2
+          break
+        case 'right':
+          lineX += totalWidth - lineMetric.width
+          break
+      }
+
+      const lineY = y + index * lineHeight
+
+      return {
+        text: line,
+        x: lineX,
+        y: lineY,
+        baseline: lineY + lineMetric.ascender,
+        width: lineMetric.width,
+        height: lineMetric.height,
+        ascender: lineMetric.ascender,
+        descender: lineMetric.descender
+      }
+    })
+
+    return {
+      lines: linesWithPositions,
+      totalWidth,
+      totalHeight,
+      x,
+      y,
+      lineHeight,
+      baseline: y + lineMetrics[0].ascender
+    }
+  }
+
+  getMetrics(text: string, options: TextToSVGOptions = {}): TextMetrics {
+    // Handle multiline text
+    if (text.includes('\n')) {
+      const multilineMetrics: MultilineMetrics = this.getMultilineMetrics(text, options)
+      return {
+        x: multilineMetrics.x,
+        y: multilineMetrics.y,
+        baseline: multilineMetrics.baseline,
+        width: multilineMetrics.totalWidth,
+        height: multilineMetrics.totalHeight,
+        ascender: multilineMetrics.lines[0].ascender,
+        descender: multilineMetrics.lines[multilineMetrics.lines.length - 1].descender,
+        lines: multilineMetrics.lines
+      }
+    }
+
     const fontSize = options.fontSize || 72
     const anchor = parseAnchorOption(options.anchor || '')
 
@@ -150,7 +301,112 @@ export default class TextToSVG {
     }
   }
 
+  private getMultilineD(text: string, options: TextToSVGOptions = {}) {
+    const multilineMetrics = this.getMultilineMetrics(text, options)
+    const fontSize = options.fontSize || 72
+    const kerning = 'kerning' in options ? options.kerning : true
+    const letterSpacing = 'letterSpacing' in options ? options.letterSpacing : undefined
+    const tracking = 'tracking' in options ? options.tracking : undefined
+
+    // Calculate the overall center point for arc transformations
+    const overallCenterX = multilineMetrics.x + multilineMetrics.totalWidth / 2
+    const overallCenterY = multilineMetrics.baseline
+
+    let combinedPathData = ''
+
+    for (const lineData of multilineMetrics.lines) {
+      if (lineData.text.trim() === '') {
+        // Skip empty lines
+        continue
+      }
+
+      const path = this.font.getPath(
+        lineData.text,
+        lineData.x,
+        lineData.baseline,
+        fontSize,
+        { kerning, letterSpacing, tracking }
+      )
+      
+      let linePathData = path.toPathData()
+      
+      // Apply envelope transformation to each line if specified
+      if (options.envelope) {
+        if (options.envelope.arc) {
+          const envelopeOptions = { ...options.envelope }
+          envelopeOptions.arc = { ...options.envelope.arc }
+          
+          // For multiline text, use consistent arc curvature based on text alignment
+          if (!envelopeOptions.arc.centerY) {
+            envelopeOptions.arc.centerY = overallCenterY
+          }
+          
+          // Use the maximum width (totalWidth) for consistent arc curvature across all lines
+          envelopeOptions.arc.textWidth = multilineMetrics.totalWidth
+          
+          // Calculate arc center based on text alignment mode
+          const textAlign = options.textAlign || 'left'
+          
+          if (textAlign === 'center') {
+            // Center alignment: adjust center point based on line position relative to overall center
+            if (!envelopeOptions.arc.centerX) {
+              envelopeOptions.arc.centerX = overallCenterX
+            }
+            const lineCenterX = lineData.x + lineData.width / 2
+            const offsetFromOverallCenter = lineCenterX - overallCenterX
+            envelopeOptions.arc.centerX = overallCenterX - offsetFromOverallCenter
+            
+          } else if (textAlign === 'left') {
+            // Left alignment: use left edge of overall text block as arc reference
+            const overallLeftX = multilineMetrics.x
+            if (!envelopeOptions.arc.centerX) {
+              envelopeOptions.arc.centerX = overallLeftX + multilineMetrics.totalWidth / 2
+            }
+            // Calculate offset from line start to overall start
+            const lineStartX = lineData.x
+            const offsetFromOverallLeft = lineStartX - overallLeftX
+            envelopeOptions.arc.centerX = overallLeftX + multilineMetrics.totalWidth / 2 - offsetFromOverallLeft
+            
+          } else if (textAlign === 'right') {
+            // Right alignment: use right edge of overall text block as arc reference
+            const overallRightX = multilineMetrics.x + multilineMetrics.totalWidth
+            if (!envelopeOptions.arc.centerX) {
+              envelopeOptions.arc.centerX = overallRightX - multilineMetrics.totalWidth / 2
+            }
+            // Calculate offset from line end to overall end
+            const lineEndX = lineData.x + lineData.width
+            const offsetFromOverallRight = overallRightX - lineEndX
+            envelopeOptions.arc.centerX = overallRightX - multilineMetrics.totalWidth / 2 + offsetFromOverallRight
+            
+          } else {
+            // Default fallback (treat as left alignment)
+            const overallLeftX = multilineMetrics.x
+            if (!envelopeOptions.arc.centerX) {
+              envelopeOptions.arc.centerX = overallLeftX + multilineMetrics.totalWidth / 2
+            }
+            const lineStartX = lineData.x
+            const offsetFromOverallLeft = lineStartX - overallLeftX
+            envelopeOptions.arc.centerX = overallLeftX + multilineMetrics.totalWidth / 2 - offsetFromOverallLeft
+          }
+          
+          linePathData = EnvelopeTransform.transform(linePathData, envelopeOptions)
+        } else {
+          linePathData = EnvelopeTransform.transform(linePathData, options.envelope)
+        }
+      }
+      
+      combinedPathData += linePathData
+    }
+
+    return combinedPathData
+  }
+
   getD(text: string, options: TextToSVGOptions = {}) {
+    // Handle multiline text
+    if (text.includes('\n')) {
+      return this.getMultilineD(text, options)
+    }
+
     const fontSize = options.fontSize || 72
     const kerning = 'kerning' in options ? options.kerning : true
     const letterSpacing =
@@ -204,6 +460,11 @@ export default class TextToSVG {
     options.x = options.x || 0
     options.y = options.y || 0
     
+    // Handle multiline text
+    if (text.includes('\n')) {
+      return this.getMultilineSVG(text, options)
+    }
+    
     // Get the path data first to calculate accurate bounding box
     const pathData = this.getD(text, options)
     
@@ -250,6 +511,69 @@ export default class TextToSVG {
     }
 
     // Build SVG with transformed path data
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box.width} ${box.height}">`
+    
+    // Add attributes to the path if specified
+    if (options.attributes) {
+      const attributesStr = Object.keys(options.attributes)
+        .map((key) => `${key}="${options.attributes![key]}"`)
+        .join(' ')
+      svg += `<path ${attributesStr} d="${finalPathData}"/>`
+    } else {
+      svg += `<path d="${finalPathData}"/>`
+    }
+    
+    svg += '</svg>'
+
+    return svg
+  }
+
+  private getMultilineSVG(text: string, options: TextToSVGOptions = {}) {
+    // Get the multiline path data
+    const pathData = this.getMultilineD(text, options)
+    
+    let box: { width: number; height: number }
+    let finalPathData: string
+    
+    if (options.envelope) {
+      // For transformed paths, calculate bounding box from actual path data
+      const boundingBox = EnvelopeTransform.calculateBoundingBox(pathData)
+      
+      // Add some padding for better visual appearance
+      const padding = 10
+      box = {
+        width: boundingBox.width + padding * 2,
+        height: boundingBox.height + padding * 2
+      }
+      
+      // Calculate the translation needed to center the content in the viewBox
+      const translateX = (box.width - boundingBox.width) / 2 - boundingBox.x
+      const translateY = (box.height - boundingBox.height) / 2 - boundingBox.y
+      
+      // Apply translation directly to path data using svgpath library
+      finalPathData = svgpath(pathData)
+        .translate(translateX, translateY)
+        .toString()
+    } else {
+      // For non-transformed multiline paths, use metrics-based calculation
+      const metrics = this.getMetrics(text, options)
+      box = {
+        width: Math.max(metrics.x + metrics.width, 0) - Math.min(metrics.x, 0),
+        height: Math.max(metrics.y + metrics.height, 0) - Math.min(metrics.y, 0),
+      }
+      const origin = {
+        x: box.width - Math.max(metrics.x + metrics.width, 0),
+        y: box.height - Math.max(metrics.y + metrics.height, 0),
+      }
+
+      // For multiline without envelope, we need to adjust the coordinates
+      // Apply translation to the path data
+      finalPathData = svgpath(pathData)
+        .translate(origin.x, origin.y)
+        .toString()
+    }
+
+    // Build SVG with path data
     let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box.width} ${box.height}">`
     
     // Add attributes to the path if specified
