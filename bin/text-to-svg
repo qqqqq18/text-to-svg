@@ -46,7 +46,8 @@ let font;
 if (!program.font) {
   font = path.join(fontsPath, 'SourceHanSerifJP-Light.otf')
 } else {
-  font = path.join(fontsPath, program.font)
+  // font = path.join(fontsPath, program.font)
+  font = program.font
 }
 
 const TextToSVG = require('../build');
