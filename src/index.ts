@@ -18,6 +18,7 @@ export interface TextToSVGOptions {
   envelope?: EnvelopeTransformOptions
   lineHeight?: number
   textAlign?: 'left' | 'center' | 'right'
+  writingMode?: 'horizontal' | 'vertical'
 }
 
 interface LineMetrics {
@@ -130,6 +131,140 @@ export default class TextToSVG {
     return (this.font.ascender - this.font.descender) * fontScale
   }
 
+  getVerticalHeight(text: string, options: TextToSVGOptions) {
+    const fontSize = options.fontSize || 72
+    const kerning = 'kerning' in options ? options.kerning : true
+    const fontScale = (1 / this.font.unitsPerEm) * fontSize
+
+    let height = 0
+    const glyphs = this.font.stringToGlyphs(text)
+    for (let i = 0; i < glyphs.length; i++) {
+      const glyph = glyphs[i]
+
+      if (glyph.advanceWidth) {
+        height += glyph.advanceWidth * fontScale
+      }
+
+      if (kerning && i < glyphs.length - 1) {
+        const kerningValue = this.font.getKerningValue(glyph, glyphs[i + 1])
+        height += kerningValue * fontScale
+      }
+
+      if (options.letterSpacing) {
+        height += options.letterSpacing * fontSize
+      } else if (options.tracking) {
+        height += (options.tracking / 1000) * fontSize
+      }
+    }
+    return height
+  }
+
+  getVerticalWidth(fontSize: number) {
+    const fontScale = (1 / this.font.unitsPerEm) * fontSize
+    return (this.font.ascender - this.font.descender) * fontScale
+  }
+
+  private getVerticalMultilineMetrics(text: string, options: TextToSVGOptions = {}): MultilineMetrics {
+    const lines = text.split('\n')
+    const fontSize = options.fontSize || 72
+    const lineHeight = (options.lineHeight || 1.2) * fontSize
+    const anchor = parseAnchorOption(options.anchor || '')
+
+    // Calculate metrics for each line (column in vertical writing) without position adjustments
+    const lineMetrics: SingleLineMetrics[] = lines.map((line: string) => {
+      const singleLineOptions = { ...options }
+      delete singleLineOptions.lineHeight
+      delete singleLineOptions.textAlign
+      delete singleLineOptions.envelope
+      delete singleLineOptions.x
+      delete singleLineOptions.y
+      delete singleLineOptions.anchor
+      singleLineOptions.writingMode = 'vertical'
+      return this.getVerticalMetrics(line, singleLineOptions) as SingleLineMetrics
+    })
+
+    // In vertical writing, total height is the max height of all lines (columns)
+    // and total width is the sum of all line widths plus spacing
+    const totalHeight: number = Math.max(...lineMetrics.map((m: SingleLineMetrics) => m.height))
+    const totalWidth: number = lineMetrics.length > 0 ? 
+      lineMetrics[0].width + (lines.length - 1) * lineHeight : 0
+
+    // Calculate base positioning
+    let x = options.x || 0
+    let y = options.y || 0
+
+    // Apply horizontal anchor to overall text block
+    switch (anchor.horizontal) {
+      case 'left':
+        x -= 0
+        break
+      case 'center':
+        x -= totalWidth / 2
+        break
+      case 'right':
+        x -= totalWidth
+        break
+      default:
+        throw new Error(`Unknown anchor option: ${anchor.horizontal}`)
+    }
+
+    // Apply vertical anchor to overall text block
+    const fontScale = (1 / this.font.unitsPerEm) * fontSize
+    const ascender = this.font.ascender * fontScale
+    switch (anchor.vertical) {
+      case 'baseline':
+        // For vertical multiline, baseline means starting point of text
+        y -= ascender
+        break
+      case 'top':
+        // Top means text starts from y coordinate
+        y -= 0
+        break
+      case 'middle':
+        // Middle means text is centered vertically
+        y -= totalHeight / 2
+        break
+      case 'bottom':
+        // Bottom means text ends at y coordinate
+        y -= totalHeight
+        break
+      default:
+        throw new Error(`Unknown anchor option: ${anchor.vertical}`)
+    }
+
+    // Calculate position for each line (column)
+    const columnWidth = lineMetrics.length > 0 ? lineMetrics[0].width : 0
+    const linesWithPositions: LineMetrics[] = lines.map((line: string, index: number): LineMetrics => {
+      const lineMetric: SingleLineMetrics = lineMetrics[index]
+      
+      // In vertical writing, columns are positioned from right to left
+      // Start from the rightmost position and move left
+      const lineX = x + totalWidth - columnWidth - index * lineHeight
+      const lineY = y
+
+      return {
+        text: line,
+        x: lineX,
+        y: lineY,
+        baseline: lineY + ascender,
+        width: columnWidth,
+        height: lineMetric.height,
+        ascender: lineMetric.ascender,
+        descender: lineMetric.descender
+      }
+    })
+
+    return {
+      lines: linesWithPositions,
+      totalWidth,
+      totalHeight,
+      x,
+      y,
+      lineHeight,
+      baseline: y + (lineMetrics.length > 0 ? lineMetrics[0].ascender : 0)
+    }
+  }
+
   private getMultilineMetrics(text: string, options: TextToSVGOptions = {}): MultilineMetrics {
     const lines = text.split('\n')
     const fontSize = options.fontSize || 72
@@ -229,10 +364,79 @@ export default class TextToSVG {
     }
   }
 
+  private getVerticalMetrics(text: string, options: TextToSVGOptions = {}): SingleLineMetrics {
+    const fontSize = options.fontSize || 72
+    const anchor = parseAnchorOption(options.anchor || '')
+
+    const height = this.getVerticalHeight(text, options)
+    const width = this.getVerticalWidth(fontSize)
+
+    const fontScale = (1 / this.font.unitsPerEm) * fontSize
+    const ascender = this.font.ascender * fontScale
+    const descender = this.font.descender * fontScale
+
+    let x = options.x || 0
+    switch (anchor.horizontal) {
+      case 'left':
+        x -= 0
+        break
+      case 'center':
+        x -= width / 2
+        break
+      case 'right':
+        x -= width
+        break
+      default:
+        throw new Error(`Unknown anchor option: ${anchor.horizontal}`)
+    }
+
+    let y = options.y || 0
+    switch (anchor.vertical) {
+      case 'baseline':
+        // For vertical text, baseline means the starting point of the first character
+        y -= ascender
+        break
+      case 'top':
+        // Top means text starts from y coordinate (no offset)
+        y -= 0
+        break
+      case 'middle':
+        // Middle means text is centered vertically
+        y -= height / 2
+        break
+      case 'bottom':
+        // Bottom means text ends at y coordinate
+        y -= height
+        break
+      default:
+        throw new Error(`Unknown anchor option: ${anchor.vertical}`)
+    }
+
+    // For vertical text, baseline is at the start position with ascender space
+    const baseline = y + ascender
+
+    return {
+      x,
+      y,
+      baseline,
+      width,
+      height,
+      ascender,
+      descender,
+    }
+  }
+
   getMetrics(text: string, options: TextToSVGOptions = {}): TextMetrics {
+    const writingMode = options.writingMode || 'horizontal'
+    
     // Handle multiline text
     if (text.includes('\n')) {
-      const multilineMetrics: MultilineMetrics = this.getMultilineMetrics(text, options)
+      let multilineMetrics: MultilineMetrics
+      if (writingMode === 'vertical') {
+        multilineMetrics = this.getVerticalMultilineMetrics(text, options)
+      } else {
+        multilineMetrics = this.getMultilineMetrics(text, options)
+      }
       return {
         x: multilineMetrics.x,
         y: multilineMetrics.y,
@@ -243,6 +447,11 @@ export default class TextToSVG {
         descender: multilineMetrics.lines[multilineMetrics.lines.length - 1].descender,
         lines: multilineMetrics.lines
       }
+    }
+
+    // Handle vertical writing mode for single line
+    if (writingMode === 'vertical') {
+      return this.getVerticalMetrics(text, options)
     }
 
     const fontSize = options.fontSize || 72
@@ -401,10 +610,95 @@ export default class TextToSVG {
     return combinedPathData
   }
 
+  private getVerticalD(text: string, options: TextToSVGOptions = {}) {
+    const fontSize = options.fontSize || 72
+    const kerning = 'kerning' in options ? options.kerning : true
+    const letterSpacing = 'letterSpacing' in options ? options.letterSpacing : undefined
+    const tracking = 'tracking' in options ? options.tracking : undefined
+    
+    const startX = options.x || 0
+    const startY = options.y || 0
+    
+    // Start from the baseline position for vertical text
+    const fontScale = (1 / this.font.unitsPerEm) * fontSize
+    const ascender = this.font.ascender * fontScale
+    let currentY = startY + ascender
+    
+    const glyphs = this.font.stringToGlyphs(text)
+    
+    let combinedPathData = ''
+    
+    for (let i = 0; i < glyphs.length; i++) {
+      const glyph = glyphs[i]
+      
+      // Get the character as a string for path generation
+      const char = String.fromCharCode(glyph.unicode || 0)
+      if (char && char.charCodeAt(0) > 32) {  // Skip control characters and spaces
+        // Get the path for this single character at the baseline
+        const charPath = this.font.getPath(char, startX, currentY, fontSize, { kerning: false })
+        const pathData = charPath.toPathData()
+        
+        if (pathData) {
+          combinedPathData += pathData
+        }
+      }
+      
+      // Move to next character position (downward)
+      if (glyph.advanceWidth) {
+        currentY += glyph.advanceWidth * fontScale
+      }
+      
+      if (kerning && i < glyphs.length - 1) {
+        const kerningValue = this.font.getKerningValue(glyph, glyphs[i + 1])
+        currentY += kerningValue * fontScale
+      }
+      
+      if (letterSpacing) {
+        currentY += letterSpacing * fontSize
+      } else if (tracking) {
+        currentY += (tracking / 1000) * fontSize
+      }
+    }
+    
+    return combinedPathData
+  }
+
+  private getVerticalMultilineD(text: string, options: TextToSVGOptions = {}) {
+    const multilineMetrics = this.getVerticalMultilineMetrics(text, options)
+    let combinedPathData = ''
+
+    for (const lineData of multilineMetrics.lines) {
+      if (lineData.text.trim() === '') {
+        continue
+      }
+
+      const lineOptions = { ...options }
+      lineOptions.x = lineData.x
+      lineOptions.y = lineData.y
+      lineOptions.writingMode = 'vertical'
+      
+      const linePathData = this.getVerticalD(lineData.text, lineOptions)
+      combinedPathData += linePathData
+    }
+
+    return combinedPathData
+  }
+
   getD(text: string, options: TextToSVGOptions = {}) {
+    const writingMode = options.writingMode || 'horizontal'
+    
     // Handle multiline text
     if (text.includes('\n')) {
-      return this.getMultilineD(text, options)
+      if (writingMode === 'vertical') {
+        return this.getVerticalMultilineD(text, options)
+      } else {
+        return this.getMultilineD(text, options)
+      }
+    }
+
+    // Handle vertical writing mode (envelope and textAlign not supported)
+    if (writingMode === 'vertical') {
+      return this.getVerticalD(text, options)
     }
 
     const fontSize = options.fontSize || 72
@@ -465,53 +759,33 @@ export default class TextToSVG {
       return this.getMultilineSVG(text, options)
     }
     
-    // Get the path data first to calculate accurate bounding box
-    const pathData = this.getD(text, options)
+    // Simplified approach: Generate path with minimal anchor settings, then center in viewBox
+    const pathOnlyOptions = { ...options }
+    pathOnlyOptions.x = 0
+    pathOnlyOptions.y = 0
+    pathOnlyOptions.anchor = 'left top'
     
-    let box: { width: number; height: number }
-    let finalPathData: string
+    const pathData = this.getD(text, pathOnlyOptions)
     
-    if (options.envelope) {
-      // For transformed paths, calculate bounding box from actual path data
-      const boundingBox = EnvelopeTransform.calculateBoundingBox(pathData)
-      
-      // Add some padding for better visual appearance
-      const padding = 10
-      box = {
-        width: boundingBox.width + padding * 2,
-        height: boundingBox.height + padding * 2
-      }
-      
-      // Calculate the translation needed to center the content in the viewBox
-      const translateX = (box.width - boundingBox.width) / 2 - boundingBox.x
-      const translateY = (box.height - boundingBox.height) / 2 - boundingBox.y
-      
-      // Apply translation directly to path data using svgpath library
-      finalPathData = svgpath(pathData)
-        .translate(translateX, translateY)
-        .toString()
-    } else {
-      // For non-transformed paths, use original metrics-based calculation
-      const metrics = this.getMetrics(text, options)
-      box = {
-        width: Math.max(metrics.x + metrics.width, 0) - Math.min(metrics.x, 0),
-        height: Math.max(metrics.y + metrics.height, 0) - Math.min(metrics.y, 0),
-      }
-      const origin = {
-        x: box.width - Math.max(metrics.x + metrics.width, 0),
-        y: box.height - Math.max(metrics.y + metrics.height, 0),
-      }
+    // Calculate bounding box from actual path data
+    const boundingBox = EnvelopeTransform.calculateBoundingBox(pathData)
+    
+    // Add padding for better visual appearance
+    const padding = 10
+    const boxWidth = boundingBox.width + padding * 2
+    const boxHeight = boundingBox.height + padding * 2
+    
+    // Calculate translation to center path in viewBox
+    const translateX = (boxWidth - boundingBox.width) / 2 - boundingBox.x
+    const translateY = (boxHeight - boundingBox.height) / 2 - boundingBox.y
+    
+    // Apply translation to center the path
+    const finalPathData = svgpath(pathData)
+      .translate(translateX, translateY)
+      .toString()
 
-      // Shift text based on origin for non-envelope case
-      options.x += origin.x
-      options.y += origin.y
-      
-      // Use the standard path generation
-      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box.width} ${box.height}">${this.getPath(text, options)}</svg>`
-    }
-
-    // Build SVG with transformed path data
-    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box.width} ${box.height}">`
+    // Build SVG with centered path data
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${boxWidth} ${boxHeight}">`
     
     // Add attributes to the path if specified
     if (options.attributes) {
@@ -529,52 +803,33 @@ export default class TextToSVG {
   }
 
   private getMultilineSVG(text: string, options: TextToSVGOptions = {}) {
-    // Get the multiline path data
-    const pathData = this.getMultilineD(text, options)
+    // Simplified approach: Generate path with minimal anchor settings, then center in viewBox
+    const pathOnlyOptions = { ...options }
+    pathOnlyOptions.x = 0
+    pathOnlyOptions.y = 0
+    pathOnlyOptions.anchor = 'left top'
     
-    let box: { width: number; height: number }
-    let finalPathData: string
+    const pathData = this.getD(text, pathOnlyOptions)
     
-    if (options.envelope) {
-      // For transformed paths, calculate bounding box from actual path data
-      const boundingBox = EnvelopeTransform.calculateBoundingBox(pathData)
-      
-      // Add some padding for better visual appearance
-      const padding = 10
-      box = {
-        width: boundingBox.width + padding * 2,
-        height: boundingBox.height + padding * 2
-      }
-      
-      // Calculate the translation needed to center the content in the viewBox
-      const translateX = (box.width - boundingBox.width) / 2 - boundingBox.x
-      const translateY = (box.height - boundingBox.height) / 2 - boundingBox.y
-      
-      // Apply translation directly to path data using svgpath library
-      finalPathData = svgpath(pathData)
-        .translate(translateX, translateY)
-        .toString()
-    } else {
-      // For non-transformed multiline paths, use metrics-based calculation
-      const metrics = this.getMetrics(text, options)
-      box = {
-        width: Math.max(metrics.x + metrics.width, 0) - Math.min(metrics.x, 0),
-        height: Math.max(metrics.y + metrics.height, 0) - Math.min(metrics.y, 0),
-      }
-      const origin = {
-        x: box.width - Math.max(metrics.x + metrics.width, 0),
-        y: box.height - Math.max(metrics.y + metrics.height, 0),
-      }
+    // Calculate bounding box from actual path data
+    const boundingBox = EnvelopeTransform.calculateBoundingBox(pathData)
+    
+    // Add padding for better visual appearance
+    const padding = 10
+    const boxWidth = boundingBox.width + padding * 2
+    const boxHeight = boundingBox.height + padding * 2
+    
+    // Calculate translation to center path in viewBox
+    const translateX = (boxWidth - boundingBox.width) / 2 - boundingBox.x
+    const translateY = (boxHeight - boundingBox.height) / 2 - boundingBox.y
+    
+    // Apply translation to center the path
+    const finalPathData = svgpath(pathData)
+      .translate(translateX, translateY)
+      .toString()
 
-      // For multiline without envelope, we need to adjust the coordinates
-      // Apply translation to the path data
-      finalPathData = svgpath(pathData)
-        .translate(origin.x, origin.y)
-        .toString()
-    }
-
-    // Build SVG with path data
-    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box.width} ${box.height}">`
+    // Build SVG with centered path data
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${boxWidth} ${boxHeight}">`
     
     // Add attributes to the path if specified
     if (options.attributes) {
@@ -596,24 +851,78 @@ export default class TextToSVG {
 
     options.x = options.x || 0
     options.y = options.y || 0
-    const metrics = this.getMetrics(text, options)
+    const writingMode = options.writingMode || 'horizontal'
+    // Use consistent anchor settings for metrics calculation
+    const metricsOptions = { ...options }
+    metricsOptions.x = 0
+    metricsOptions.y = 0
+    metricsOptions.anchor = 'left top'
+    const metrics = this.getMetrics(text, metricsOptions)
+    
+    // Calculate proper box dimensions handling negative coordinates
+    const minX = metrics.x
+    const maxX = metrics.x + metrics.width
+    const minY = metrics.y
+    const maxY = metrics.y + metrics.height
+    
     const box = {
-      width: Math.max(metrics.x + metrics.width, 0) - Math.min(metrics.x, 0),
-      height: Math.max(metrics.y + metrics.height, 0) - Math.min(metrics.y, 0),
+      width: maxX - minX,
+      height: maxY - minY
     }
+    
     const origin = {
-      x: box.width - Math.max(metrics.x + metrics.width, 0),
-      y: box.height - Math.max(metrics.y + metrics.height, 0),
+      x: -minX,
+      y: -minY
     }
 
-    // Shift text based on origin
-    options.x += origin.x
-    options.y += origin.y
+    // Reset position options and get path data without position adjustment
+    const pathOnlyOptions = { ...options }
+    pathOnlyOptions.x = 0
+    pathOnlyOptions.y = 0
+    pathOnlyOptions.anchor = 'left top'
+    
+    const rawPathData = this.getD(text, pathOnlyOptions)
+    
+    // Apply translation for proper positioning
+    const translatedPathData = svgpath(rawPathData)
+      .translate(origin.x, origin.y)
+      .toString()
 
     let svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${box.width}" height="${box.height}">`
+    
+    // Add coordinate axes
     svg += `<path fill="none" stroke="red" stroke-width="1" d="M0,${origin.y}L${box.width},${origin.y}"/>` // X Axis
     svg += `<path fill="none" stroke="red" stroke-width="1" d="M${origin.x},0L${origin.x},${box.height}"/>` // Y Axis
-    svg += this.getPath(text, options)
+    
+    // Add debug information for multiline text
+    if (text.includes('\n') && metrics.lines) {
+      metrics.lines.forEach((line, index) => {
+        const lineX = line.x + origin.x
+        const lineY = line.y + origin.y
+        const lineWidth = line.width
+        const lineHeight = line.height
+        
+        // Draw line boundaries
+        svg += `<rect fill="none" stroke="blue" stroke-width="0.5" stroke-dasharray="2,2" x="${lineX}" y="${lineY}" width="${lineWidth}" height="${lineHeight}"/>`
+        
+        // Add line number
+        svg += `<text x="${lineX + 2}" y="${lineY + 12}" font-size="10" fill="blue">${index + 1}</text>`
+      })
+    }
+    
+    // Add the actual text path
+    if (options.attributes) {
+      const attributesStr = Object.keys(options.attributes)
+        .map((key) => `${key}="${options.attributes![key]}"`)
+        .join(' ')
+      svg += `<path ${attributesStr} d="${translatedPathData}"/>`
+    } else {
+      svg += `<path d="${translatedPathData}"/>`
+    }
+    
+    // Add writing mode indicator
+    svg += `<text x="5" y="15" font-size="12" fill="green">Mode: ${writingMode}</text>`
+    
     svg += '</svg>'
 
     return svg

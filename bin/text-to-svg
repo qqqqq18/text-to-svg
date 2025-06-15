@@ -23,6 +23,7 @@ program
   .option('-d, --debug', 'debug')
   .option('--line-height <n>', 'line height multiplier for multiline text', parseFloat)
   .option('--text-align [value]', 'text alignment for multiline text (left, center, right)')
+  .option('--writing-mode [value]', 'writing mode: horizontal (default) or vertical')
   .option('--arc-angle <n>', 'arc transformation angle in degrees (positive for upward, negative for downward)', parseFloat)
   .option('--arc-center-x <n>', 'arc center X coordinate', parseFloat)
   .option('--arc-center-y <n>', 'arc center Y coordinate', parseFloat)
@@ -59,20 +60,39 @@ if (opts.textAlign !== undefined) {
   options.textAlign = opts.textAlign;
 }
 
+// Add writing mode option if provided
+if (opts.writingMode !== undefined) {
+  if (opts.writingMode === 'vertical' || opts.writingMode === 'horizontal') {
+    options.writingMode = opts.writingMode;
+    
+    // Warn about unsupported options in vertical mode
+    if (opts.writingMode === 'vertical' && opts.textAlign !== undefined) {
+      console.warn('Warning: Text alignment is not supported in vertical writing mode. --text-align option will be ignored.');
+    }
+  } else {
+    console.error('Error: --writing-mode must be either "horizontal" or "vertical"');
+    process.exit(1);
+  }
+}
+
 // Add envelope transformation if arc options are provided
 if (opts.arcAngle !== undefined) {
-  options.envelope = {
-    arc: {
-      angle: opts.arcAngle
+  if (options.writingMode === 'vertical') {
+    console.warn('Warning: Envelope transformations are not supported in vertical writing mode. Arc options will be ignored.');
+  } else {
+    options.envelope = {
+      arc: {
+        angle: opts.arcAngle
+      }
+    };
+    
+    // Add custom center coordinates if provided
+    if (opts.arcCenterX !== undefined) {
+      options.envelope.arc.centerX = opts.arcCenterX;
     }
-  };
-  
-  // Add custom center coordinates if provided
-  if (opts.arcCenterX !== undefined) {
-    options.envelope.arc.centerX = opts.arcCenterX;
-  }
-  if (opts.arcCenterY !== undefined) {
-    options.envelope.arc.centerY = opts.arcCenterY;
+    if (opts.arcCenterY !== undefined) {
+      options.envelope.arc.centerY = opts.arcCenterY;
+    }
   }
 }
 

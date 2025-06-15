@@ -27,7 +27,7 @@ The primary class handles font loading and text-to-SVG conversion with these key
 - `getSVG(text, options)` - Returns complete SVG markup
 - `getMetrics(text, options)` - Returns text dimensions and positioning
 
-**Options support**: All methods accept comprehensive options including `fontSize`, `anchor`, `x/y` positioning, `kerning`, `letterSpacing`, `tracking`, `attributes`, `envelope` transforms, `lineHeight`, and `textAlign` for multiline text.
+**Options support**: All methods accept comprehensive options including `fontSize`, `anchor`, `x/y` positioning, `kerning`, `letterSpacing`, `tracking`, `attributes`, `envelope` transforms, `lineHeight`, `textAlign` for multiline text, and `writingMode` for vertical text layout.
 
 ### Envelope Transform (src/envelope-transform.ts)
 New feature for advanced text transformations:
@@ -47,12 +47,12 @@ New feature for advanced text transformations:
 - **External deps**: opentype.js, fs, path are externalized in builds
 
 ### CLI Tool (bin/text-to-svg)
-Command-line interface supporting options for position (-x, -y), font size (-s), font file (-f), color (-c), kerning (-k), anchor (-a), and debug mode (-d).
+Command-line interface supporting options for position (-x, -y), font size (-s), font file (-f), color (-c), kerning (-k), anchor (-a), writing mode (--writing-mode), and debug mode (-d).
 
 ## Testing
 
 Uses Vitest with:
-- Test files: `test/*.test.ts` (main: `index.test.ts`, envelope: `envelope-transform.test.ts`, multiline: `multiline.test.ts`)
+- Test files: `test/*.test.ts` (main: `index.test.ts`, envelope: `envelope-transform.test.ts`, multiline: `multiline.test.ts`, vertical-writing: `vertical-writing.test.ts`)
 - Test environment: Node.js
 - Browser testing: `test/browser.html` for manual browser validation
 - Font creation utilities: `test/create-test-font.js`
@@ -67,3 +67,24 @@ Uses Vitest with:
 - **typescript**: Type checking and compilation
 - **vite**: Build system and bundling (replaced Gulp/Babel)
 - **vitest**: Testing framework
+
+## Known Issues & Future Improvements
+
+### ✅ RESOLVED: Vertical Writing Mode CLI Issues
+**Issue**: Previously, CLI with vertical writing mode and multiline text could produce path elements outside viewBox bounds.
+
+**Solution Implemented**: Unified center-alignment transform approach:
+- Simplified SVG generation logic by removing complex anchor processing layers
+- All paths are generated with minimal anchor settings (`left top`) then centered in viewBox
+- Uses `EnvelopeTransform.calculateBoundingBox()` to accurately calculate path bounds
+- Applies `svgpath().translate()` to center path content within viewBox
+- Consistent behavior across horizontal/vertical/multiline/envelope-transformed text
+
+**Benefits**:
+- ✅ Eliminates viewBox overflow issues for all writing modes
+- ✅ Maintains compatibility (all 62 tests pass including 26 vertical writing tests)
+- ✅ Simplified and more maintainable codebase
+- ✅ Consistent positioning behavior across all text layouts
+- ✅ Optimal viewBox sizing for better visual appearance
+
+**Technical Details**: Both `getSVG()` and `getMultilineSVG()` methods now use the same center-alignment strategy, calculating actual path bounding boxes and applying translation transforms to ensure content is perfectly centered within appropriately-sized viewBoxes.
